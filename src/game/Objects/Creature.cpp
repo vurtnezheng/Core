@@ -345,9 +345,11 @@ bool Creature::InitEntry(uint32 Entry, Team team, CreatureData const* data /*=NU
     }
 
     SetName(normalInfo->Name);                              // at normal entry always
-
+#if SUPPORTED_CLIENT_BUILD >= CLIENT_BUILD_1_12_1
     SetFloatValue(UNIT_MOD_CAST_SPEED, 1.0f);
-
+#else
+    SetInt32Value(UNIT_MOD_CAST_SPEED, 0);
+#endif
     // update speed for the new CreatureInfo base speed mods
     UpdateSpeed(MOVE_WALK, false);
     UpdateSpeed(MOVE_RUN,  false);
@@ -3123,6 +3125,14 @@ void Creature::SetHomePosition(float x, float y, float z, float o)
     m_HomeOrientation = o;
 }
 
+void Creature::ResetHomePosition()
+{
+    if (CreatureData const *data = sObjectMgr.GetCreatureData(GetGUIDLow()))
+        SetHomePosition(data->posX, data->posY, data->posZ, data->orientation);
+    else if (IsTemporarySummon())
+        GetSummonPoint(m_HomeX, m_HomeY, m_HomeZ, m_HomeOrientation);
+}
+
 void Creature::OnLeaveCombat()
 {
     UpdateCombatState(false);
@@ -3493,7 +3503,7 @@ SpellCastResult Creature::TryToCast(Unit* pTarget, const SpellEntry* pSpellInfo,
 
     // Can't cast while fleeing.
     if (GetMotionMaster()->GetCurrentMovementGeneratorType() == TIMED_FLEEING_MOTION_TYPE)
-        return SPELL_FAILED_NOT_WHILE_FATIGUED;
+        return SPELL_FAILED_FLEEING;
 
     // This spell is only used when target is in melee range.
     if ((uiCastFlags & CF_ONLY_IN_MELEE) && !CanReachWithMeleeAttack(pTarget))

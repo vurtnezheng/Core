@@ -92,6 +92,7 @@ uint8 const ConditionTargetsInternal[] =
     CONDITION_REQ_TARGET_UNIT,        //  43
     CONDITION_REQ_BOTH_UNITS,         //  44
     CONDITION_REQ_TARGET_PLAYER,      //  45
+    CONDITION_REQ_TARGET_UNIT,        //  46
 };
 
 // Starts from 4th element so that -3 will return first element.
@@ -459,32 +460,47 @@ bool inline ConditionEntry::Evaluate(WorldObject const* target, Map const* map, 
 
             return false;
         }
-        case CONDITION_INSTANCE_DATA_EQUAL:
+        case CONDITION_INSTANCE_DATA:
         {
             const Map* pMap = map ? map : (source ? source->GetMap() : target->GetMap());
 
             if (InstanceData const* data = map->GetInstanceData())
-                return const_cast<InstanceData*>(data)->GetData(m_value1) == m_value2;
+            {
+                switch (m_value3)
+                {
+                    case 0:
+                        return const_cast<InstanceData*>(data)->GetData(m_value1) == m_value2;
+                    case 1:
+                        return const_cast<InstanceData*>(data)->GetData(m_value1) >= m_value2;
+                    case 2:
+                        return const_cast<InstanceData*>(data)->GetData(m_value1) <= m_value2;
+                }
+            }
 
             return false;
         }
-        case CONDITION_INSTANCE_DATA_GREATER:
+        case CONDITION_MAP_EVENT_DATA:
         {
             const Map* pMap = map ? map : (source ? source->GetMap() : target->GetMap());
 
-            if (InstanceData const* data = map->GetInstanceData())
-                return const_cast<InstanceData*>(data)->GetData(m_value1) >= m_value2;
-
+            if (const ScriptedEvent* pEvent = pMap->GetScriptedMapEvent(m_value1))
+            {
+                switch (m_value4)
+                {
+                    case 0:
+                        return pEvent->GetData(m_value2) == m_value3;
+                    case 1:
+                        return pEvent->GetData(m_value2) >= m_value3;
+                    case 2:
+                        return pEvent->GetData(m_value2) <= m_value3;
+                }
+            }
             return false;
         }
-        case CONDITION_INSTANCE_DATA_LESS:
+        case CONDITION_MAP_EVENT_ACTIVE:
         {
             const Map* pMap = map ? map : (source ? source->GetMap() : target->GetMap());
-
-            if (InstanceData const* data = map->GetInstanceData())
-                return const_cast<InstanceData*>(data)->GetData(m_value1) <= m_value2;
-
-            return false;
+            return pMap->GetScriptedMapEvent(m_value1);
         }
         case CONDITION_LINE_OF_SIGHT:
         {
@@ -554,6 +570,10 @@ bool inline ConditionEntry::Evaluate(WorldObject const* target, Map const* map, 
         case CONDITION_IS_IN_GROUP:
         {
             return target->ToPlayer()->GetGroup();
+        }
+        case CONDITION_IS_ALIVE:
+        {
+            return target->ToUnit()->isAlive();
         }
     }
     return false;
@@ -1091,15 +1111,16 @@ bool ConditionEntry::IsValid()
         case CONDITION_INSTANCE_SCRIPT:
         case CONDITION_ACTIVE_HOLIDAY:
         case CONDITION_HAS_FLAG:
-        case CONDITION_INSTANCE_DATA_EQUAL:
-        case CONDITION_INSTANCE_DATA_GREATER:
-        case CONDITION_INSTANCE_DATA_LESS:
+        case CONDITION_INSTANCE_DATA:
+        case CONDITION_MAP_EVENT_DATA:
+        case CONDITION_MAP_EVENT_ACTIVE:
         case CONDITION_LINE_OF_SIGHT:
         case CONDITION_IS_MOVING:
         case CONDITION_HAS_PET:
         case CONDITION_IS_IN_COMBAT:
         case CONDITION_IS_HOSTILE_TO:
         case CONDITION_IS_IN_GROUP:
+        case CONDITION_IS_ALIVE:
             break;
         default:
             sLog.outErrorDb("Condition entry %u has bad type of %d, skipped ", m_entry, m_condition);
