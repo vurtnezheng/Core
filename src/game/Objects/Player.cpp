@@ -3055,7 +3055,7 @@ void Player::InitStatsForLevel(bool reapplyMods)
     // cleanup unit flags (will be re-applied if need at aura load).
     RemoveFlag(UNIT_FIELD_FLAGS,
                UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_DISABLE_MOVE | UNIT_FLAG_NOT_ATTACKABLE_1 |
-               UNIT_FLAG_OOC_NOT_ATTACKABLE | UNIT_FLAG_PASSIVE  | UNIT_FLAG_LOOTING          |
+               UNIT_FLAG_IMMUNE_TO_PLAYER | UNIT_FLAG_PASSIVE  | UNIT_FLAG_LOOTING          |
                UNIT_FLAG_PET_IN_COMBAT  | UNIT_FLAG_SILENCED     | UNIT_FLAG_PACIFIED         |
                UNIT_FLAG_STUNNED        | UNIT_FLAG_IN_COMBAT    | UNIT_FLAG_DISARMED         |
                UNIT_FLAG_CONFUSED       | UNIT_FLAG_FLEEING      | UNIT_FLAG_NOT_SELECTABLE   |
@@ -14967,7 +14967,9 @@ bool Player::LoadFromDB(ObjectGuid guid, SqlQueryHolder *holder)
     sBattleGroundMgr.PlayerLoggedIn(this); // Add to BG queue if needed
     CreatePacketBroadcaster();
 
-    if (sWorld.GetWowPatch() >= WOW_PATCH_112)
+    // Note, if not using accurate mounts be sure to update all trainer spells in the
+    // database or players will be stuck with the old skill system
+    if (sWorld.GetWowPatch() >= WOW_PATCH_112 && sWorld.getConfig(CONFIG_BOOL_ACCURATE_MOUNTS))
         UpdateOldRidingSkillToNew(has_epic_mount);
 
     return true;
@@ -15032,13 +15034,21 @@ void Player::UpdateOldRidingSkillToNew(bool has_epic_mount)
         has_old_riding_skill = true;
     }
 
+    // Paladin and Warlock level 40 mounts
+    if (HasSpell(13819u) || HasSpell(5784u))
+        has_old_riding_skill = true;
+
+    // Paladin and Warlock level 60 mounts
+    if (HasSpell(23214u) || HasSpell(23161u))
+        has_epic_mount = true;
+
     if (!has_old_riding_skill)
         return;
     
     if (has_epic_mount)
-        learnSpell(33391, false); // Journeyman Riding
+        learnSpell(33391u, false); // Journeyman Riding
     else
-        learnSpell(33388, false); // Apprentice Riding
+        learnSpell(33388u, false); // Apprentice Riding
 }
 
 void Player::SendPacketsAtRelogin()
@@ -18709,8 +18719,9 @@ BattleGroundBracketId Player::GetBattleGroundBracketIdFromLevel(BattleGroundType
 {
     BattleGround *bg = sBattleGroundMgr.GetBattleGroundTemplate(bgTypeId);
     ASSERT(bg);
+
     if (getLevel() < bg->GetMinLevel())
-        return BG_BRACKET_ID_FIRST;
+        return BG_BRACKET_ID_NONE;
 
     uint32 bracket_id = (getLevel() - bg->GetMinLevel()) / 10;
     if (bracket_id > MAX_BATTLEGROUND_BRACKETS)
@@ -20866,7 +20877,7 @@ void Player::LootMoney(int32 money, Loot* loot)
 void Player::RewardHonor(Unit* uVictim, uint32 groupSize)
 {
     // Honor System was added in 1.4.
-    if (sWorld.GetWowPatch() < WOW_PATCH_104)
+    if (sWorld.GetWowPatch() < WOW_PATCH_104 && sWorld.getConfig(CONFIG_BOOL_ACCURATE_PVP_TIMELINE))
         return;
 
     if (!uVictim)
@@ -20885,7 +20896,7 @@ void Player::RewardHonor(Unit* uVictim, uint32 groupSize)
                 return;
 
             // Dishonorable kills were added in 1.5.
-            if (sWorld.GetWowPatch() < WOW_PATCH_105)
+            if (sWorld.GetWowPatch() < WOW_PATCH_105 && sWorld.getConfig(CONFIG_BOOL_ACCURATE_PVP_TIMELINE))
                 return;
 
             m_honorMgr.Add(HonorMgr::DishonorableKillPoints(getLevel()), DISHONORABLE, cVictim);
@@ -20906,7 +20917,7 @@ void Player::RewardHonor(Unit* uVictim, uint32 groupSize)
 void Player::RewardHonorOnDeath()
 {
     // Honor System was added in 1.4.
-    if (sWorld.GetWowPatch() < WOW_PATCH_104)
+    if (sWorld.GetWowPatch() < WOW_PATCH_104 && sWorld.getConfig(CONFIG_BOOL_ACCURATE_PVP_TIMELINE))
         return;
 
     if (GetAura(2479, EFFECT_INDEX_0))             // Honorless Target

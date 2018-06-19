@@ -1251,9 +1251,11 @@ void Unit::Kill(Unit* pVictim, SpellEntry const *spellProto, bool durabilityLoss
                     creature->SetFlag(UNIT_DYNAMIC_FLAGS, UNIT_DYNFLAG_LOOTABLE);
         }
 
-        // Call creature just died function
         if (creature->AI())
             creature->AI()->JustDied(this);
+
+        if (CreatureGroup* group = creature->GetCreatureGroup())
+            group->OnMemberDied(creature);
 
         if (creature->IsTemporarySummon())
         {
@@ -2214,7 +2216,7 @@ void Unit::CalculateDamageAbsorbAndResist(Unit *pCaster, SpellSchoolMask schoolM
     else if (spellProto && spellProto->AttributesEx4 & SPELL_ATTR_EX4_IGNORE_RESISTANCES)
         canResist = false;
 
-    DEBUG_UNIT_IF(spellProto, this, DEBUG_SPELL_COMPUTE_RESISTS, "%s : Binary [%s]. Partial resists %s", spellProto->SpellName[2], spellProto->IsBinary() ? "YES" : "NO", canResist ? "possible" : "impossible");
+    DEBUG_UNIT_IF(spellProto, this, DEBUG_SPELL_COMPUTE_RESISTS, "%s : Binary [%s]. Partial resists %s", spellProto->SpellName[2].c_str(), spellProto->IsBinary() ? "YES" : "NO", canResist ? "possible" : "impossible");
 
     if (canResist)
     {
@@ -3063,7 +3065,7 @@ int32 Unit::MagicSpellHitChance(Unit *pVictim, SpellEntry const *spell, Spell* s
     else
         modHitChance = 94 - (leveldif - 2) * lchance;
 
-    DEBUG_UNIT(this, DEBUG_SPELL_COMPUTE_RESISTS, "%s [%u] : Binary [%s]. Base hit chance %f, level diff: %d", spell->SpellName[2], spell->Id, spell->IsBinary() ? "YES" : "NO", modHitChance, leveldif);
+    DEBUG_UNIT(this, DEBUG_SPELL_COMPUTE_RESISTS, "%s [%u] : Binary [%s]. Base hit chance %f, level diff: %d", spell->SpellName[2].c_str(), spell->Id, spell->IsBinary() ? "YES" : "NO", modHitChance, leveldif);
 
     // Spellmod from SPELLMOD_RESIST_MISS_CHANCE
     if (Player *modOwner = GetSpellModOwner())
@@ -6162,7 +6164,7 @@ bool Unit::canAttack(Unit const* target, bool force) const
     else if (!IsHostileTo(target))
         return false;
 
-    if (!target->isAttackableByAOE() || target->hasUnitState(UNIT_STAT_DIED))
+    if (!target->isAttackableByAOE(false, IsPlayer()) || target->hasUnitState(UNIT_STAT_DIED))
         return false;
 
     // shaman totem quests: spell 8898, shaman can detect elementals but elementals cannot see shaman
@@ -6715,7 +6717,7 @@ bool Unit::IsSpellCrit(Unit *pVictim, SpellEntry const *spellProto, SpellSchoolM
 
     crit_chance = crit_chance > 0.0f ? crit_chance : 0.0f;
 
-    DEBUG_UNIT(this, DEBUG_SPELL_COMPUTE_RESISTS, "%s [ID:%u] Crit chance %f.", spellProto->SpellName[2], spellProto->Id, crit_chance);
+    DEBUG_UNIT(this, DEBUG_SPELL_COMPUTE_RESISTS, "%s [ID:%u] Crit chance %f.", spellProto->SpellName[2].c_str(), spellProto->Id, crit_chance);
 
     if ((IsPlayer() && ToPlayer()->HasOption(PLAYER_CHEAT_UNRANDOMIZE)) ||
         (pVictim->IsPlayer() && pVictim->ToPlayer()->HasOption(PLAYER_CHEAT_UNRANDOMIZE)))
@@ -7445,11 +7447,7 @@ void Unit::SetInCombatState(bool PvP, Unit* enemy)
     if (creatureNotInCombat)
     {
         auto pCreature = ToCreature();
-
         pCreature->SetCombatStartPosition(GetPositionX(), GetPositionY(), GetPositionZ());
-        // should probably be removed for the attacked (+ it's party/group) only, not global
-        RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_OOC_NOT_ATTACKABLE);
-
         OnEnterCombat(enemy, true);
 
         // Some bosses are set into combat with zone
@@ -7472,17 +7470,12 @@ void Unit::ClearInCombat()
 
     // Player's state will be cleared in Player::UpdateContestedPvP
     if (GetTypeId() != TYPEID_PLAYER)
-    {
-        if (((Creature*)this)->GetCreatureInfo()->unit_flags & UNIT_FLAG_OOC_NOT_ATTACKABLE)
-            SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_OOC_NOT_ATTACKABLE);
-
         clearUnitState(UNIT_STAT_ATTACK_PLAYER);
-    }
 
     RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PET_IN_COMBAT);
 }
 
-bool Unit::isTargetableForAttack(bool inverseAlive /*=false*/) const
+bool Unit::isTargetableForAttack(bool inverseAlive /*=false*/, bool isAttackerPlayer /*=false*/) const
 {
     if (!CanBeDetected())
         return false;
@@ -7505,8 +7498,7 @@ bool Unit::isTargetableForAttack(bool inverseAlive /*=false*/) const
     if (HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE))
         return false;
 
-    // to be removed if unit by any reason enter combat
-    if (HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_OOC_NOT_ATTACKABLE))
+    if (isAttackerPlayer && HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PLAYER))
         return false;
 
     // inversealive is needed for some spells which need to be casted at dead targets (aoe)
@@ -8031,7 +8023,8 @@ void Unit::UpdateSpeed(UnitMoveType mtype, bool forced, float ratio)
     {
         // Before patch 1.9 pets should retain their wild speed, after that they are normalised
         Creature* pCreature = (Creature*)this;
-        if (!(pCreature->IsPet() && pCreature->GetOwnerGuid().IsPlayer()) || (sWorld.GetWowPatch() < WOW_PATCH_109))
+        if (!(pCreature->IsPet() && pCreature->GetOwnerGuid().IsPlayer()) || 
+            (sWorld.GetWowPatch() < WOW_PATCH_109 && sWorld.getConfig(CONFIG_BOOL_ACCURATE_PETS)))
         {
             switch (mtype)
             {
@@ -10132,6 +10125,10 @@ void Unit::ApplyAttackTimePercentMod(WeaponAttackType att, float val, bool apply
 {
     if (val > 0)
     {
+#if SUPPORTED_CLIENT_BUILD < CLIENT_BUILD_1_12_1
+        val = -val;
+        apply = !apply;
+#endif
         ApplyPercentModFloatVar(m_modAttackSpeedPct[att], val, !apply);
         ApplyPercentModFloatValue(UNIT_FIELD_BASEATTACKTIME + att, val, !apply);
 
@@ -10140,6 +10137,10 @@ void Unit::ApplyAttackTimePercentMod(WeaponAttackType att, float val, bool apply
     }
     else
     {
+#if SUPPORTED_CLIENT_BUILD < CLIENT_BUILD_1_12_1
+        val = -val;
+        apply = !apply;
+#endif
         ApplyPercentModFloatVar(m_modAttackSpeedPct[att], -val, apply);
         ApplyPercentModFloatValue(UNIT_FIELD_BASEATTACKTIME + att, -val, apply);
 
@@ -11013,13 +11014,15 @@ void Unit::Ambush(Unit* pNewVictim, uint32 embushSpellId)
     }
 }
 
-bool Unit::isAttackableByAOE(bool requireDeadTarget) const
+bool Unit::isAttackableByAOE(bool requireDeadTarget, bool isCasterPlayer) const
 {
     if (isAlive() == requireDeadTarget)
         return false;
 
-    if (HasFlag(UNIT_FIELD_FLAGS,
-                UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_OOC_NOT_ATTACKABLE))
+    if (HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE))
+        return false;
+
+    if (isCasterPlayer && HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PLAYER))
         return false;
 
     if (GetTypeId() == TYPEID_PLAYER && ToPlayer()->isGameMaster())

@@ -281,6 +281,7 @@ Spell::Spell(Unit* caster, SpellEntry const *info, bool triggered, ObjectGuid or
     m_isChannelingVisual = false;
 
     m_applyMultiplierMask = 0;
+    m_absorbed = 0;
 
     // Get data for type of attack
     m_attackType = GetWeaponAttackType(m_spellInfo);
@@ -1284,6 +1285,7 @@ void Spell::DoAllEffectOnTarget(TargetInfo *target)
         }
 
         unitTarget->CalculateAbsorbResistBlock(caster, &damageInfo, m_spellInfo, BASE_ATTACK, this);
+        m_absorbed = damageInfo.absorb;
 
         caster->DealDamageMods(damageInfo.target, damageInfo.damage, &damageInfo.absorb);
         
@@ -2357,7 +2359,7 @@ void Spell::SetTargetMap(SpellEffectIndex effIndex, uint32 targetMode, UnitList&
                 // remove not targetable units if spell has no script targets
                 for (UnitList::iterator itr = targetUnitMap.begin(); itr != targetUnitMap.end();)
                 {
-                    if (!(*itr)->isTargetableForAttack(m_spellInfo->AttributesEx3 & SPELL_ATTR_EX3_CAST_ON_DEAD))
+                    if (!(*itr)->isTargetableForAttack(m_spellInfo->AttributesEx3 & SPELL_ATTR_EX3_CAST_ON_DEAD, m_caster->IsPlayer()))
                         targetUnitMap.erase(itr++);
                     else
                         ++itr;
@@ -5270,8 +5272,12 @@ SpellCastResult Spell::CheckCast(bool strict)
         if (!m_IsTriggeredSpell && IsDeathOnlySpell(m_spellInfo) && target->isAlive())
             return SPELL_FAILED_TARGET_NOT_DEAD;
 
+        // Check spell min target level
+        if ((m_spellInfo->MinTargetLevel > 0) && (int32(target->getLevel()) < m_spellInfo->MinTargetLevel))
+            return SPELL_FAILED_LOWLEVEL;
+
         // Check spell max target level
-        if (m_spellInfo->MaxTargetLevel > 0 && int32(target->getLevel()) > m_spellInfo->MaxTargetLevel)
+        if ((m_spellInfo->MaxTargetLevel > 0) && (int32(target->getLevel()) > m_spellInfo->MaxTargetLevel))
             return SPELL_FAILED_HIGHLEVEL;
 
         bool non_caster_target = target != m_caster && !IsSpellWithCasterSourceTargetsOnly(m_spellInfo);
@@ -6589,7 +6595,7 @@ SpellCastResult Spell::CheckPetCast(Unit* target)
 
         if (_target)                                         //for target dead/target not valid
         {
-            if (!_target->isTargetableForAttack())
+            if (!_target->isTargetableForAttack(false, m_caster->IsPlayer()))
                 return SPELL_FAILED_BAD_TARGETS;            // guessed error
 
             // SPELL_EFFECT_DISPEL -> Positive or negative depending on the target
@@ -6654,16 +6660,15 @@ SpellCastResult Spell::CheckCasterAuras() const
     SpellCastResult prevented_reason = SPELL_CAST_OK;
     // Have to check if there is a stun aura. Otherwise will have problems with ghost aura apply while logging out
     uint32 unitflag = m_caster->GetUInt32Value(UNIT_FIELD_FLAGS);     // Get unit state
-    /*[-ZERO]    if (unitflag & UNIT_FLAG_STUNNED && !(m_spellInfo->AttributesEx5 & SPELL_ATTR_EX5_USABLE_WHILE_STUNNED))
-            prevented_reason = SPELL_FAILED_STUNNED;
-        else if (unitflag & UNIT_FLAG_CONFUSED && !(m_spellInfo->AttributesEx5 & SPELL_ATTR_EX5_USABLE_WHILE_CONFUSED))
-            prevented_reason = SPELL_FAILED_CONFUSED;
-        else if (unitflag & UNIT_FLAG_FLEEING && !(m_spellInfo->AttributesEx5 & SPELL_ATTR_EX5_USABLE_WHILE_FEARED))
-            prevented_reason = SPELL_FAILED_FLEEING;
-        else */
-    if (m_spellInfo->PreventionType == SPELL_PREVENTION_TYPE_SILENCE &&
+    if (unitflag & UNIT_FLAG_STUNNED && !(mechanic_immune & (1 << (MECHANIC_STUN - 1u))))
+        prevented_reason = SPELL_FAILED_STUNNED;
+    else if (unitflag & UNIT_FLAG_CONFUSED && !(mechanic_immune & CONFUSED_MECHANIC_MASK))
+        prevented_reason = SPELL_FAILED_CONFUSED;
+    else if (unitflag & UNIT_FLAG_FLEEING && !(mechanic_immune & (1 << (MECHANIC_FEAR - 1u))))
+        prevented_reason = SPELL_FAILED_FLEEING;
+    else if (m_spellInfo->PreventionType == SPELL_PREVENTION_TYPE_SILENCE &&
             (unitflag & UNIT_FLAG_SILENCED ||
-             m_caster->IsSpellProhibited(m_spellInfo))) // Nostalrius : fix contresort des mobs.
+             m_caster->IsSpellProhibited(m_spellInfo))) // Nostalrius : fix counterspell for mobs.
         prevented_reason = SPELL_FAILED_SILENCED;
     else if (unitflag & UNIT_FLAG_PACIFIED && m_spellInfo->PreventionType == SPELL_PREVENTION_TYPE_PACIFY)
         prevented_reason = SPELL_FAILED_PACIFIED;
@@ -6697,20 +6702,19 @@ SpellCastResult Spell::CheckCasterAuras() const
                     // That is needed when your casting is prevented by multiple states and you are only immune to some of them.
                     switch (aura->GetModifier()->m_auraname)
                     {
-                        /* Zero
+                        
                         case SPELL_AURA_MOD_STUN:
-                            if (!(m_spellInfo->AttributesEx5 & SPELL_ATTR_EX5_USABLE_WHILE_STUNNED))
+                            if (!(mechanic_immune & (1 << (MECHANIC_STUN - 1u))))
                                 return SPELL_FAILED_STUNNED;
                             break;
                         case SPELL_AURA_MOD_CONFUSE:
-                            if (!(m_spellInfo->AttributesEx5 & SPELL_ATTR_EX5_USABLE_WHILE_CONFUSED))
+                            if (!(mechanic_immune & CONFUSED_MECHANIC_MASK))
                                 return SPELL_FAILED_CONFUSED;
                             break;
                         case SPELL_AURA_MOD_FEAR:
-                            if (!(m_spellInfo->AttributesEx5 & SPELL_ATTR_EX5_USABLE_WHILE_FEARED))
+                            if (!(mechanic_immune & (1 << (MECHANIC_FEAR - 1u))))
                                 return SPELL_FAILED_FLEEING;
                             break;
-                        */
                         case SPELL_AURA_MOD_SILENCE:
                         case SPELL_AURA_MOD_PACIFY:
                         case SPELL_AURA_MOD_PACIFY_SILENCE:
@@ -6860,7 +6864,7 @@ SpellCastResult Spell::CheckRange(bool strict)
         if (min_range && dist < min_range)
             return SPELL_FAILED_TOO_CLOSE;
         if (m_caster->GetTypeId() == TYPEID_PLAYER &&
-                (sSpellMgr.GetSpellFacingFlag(m_spellInfo->Id) & SPELL_FACING_FLAG_INFRONT) && !m_caster->HasInArc(M_PI_F, target))
+                (m_spellInfo->Custom & SPELL_CUSTOM_FROM_FRONT) && !m_caster->HasInArc(M_PI_F, target))
             return SPELL_FAILED_UNIT_NOT_INFRONT;
     }
 
@@ -7966,7 +7970,7 @@ public:
 
             if (i_TargetType != SPELL_TARGETS_ALL)
             {
-                if (!unit->isAttackableByAOE(i_spell.m_spellInfo->AttributesEx3 & SPELL_ATTR_EX3_CAST_ON_DEAD))
+                if (!unit->isAttackableByAOE(i_spell.m_spellInfo->AttributesEx3 & SPELL_ATTR_EX3_CAST_ON_DEAD, i_playerControlled))
                     continue;
             }
 
@@ -8216,6 +8220,7 @@ void Spell::ResetEffectDamageAndHeal()
 {
     m_damage = 0;
     m_healing = 0;
+    m_absorbed = 0;
 }
 
 void Spell::SetClientStarted(bool bisClientStarted)

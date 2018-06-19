@@ -345,6 +345,7 @@ ChatCommand * ChatHandler::getCommandTable()
         { NODE, "invite",         SEC_GAMEMASTER,     true,  &ChatHandler::HandleGuildInviteCommand,         "", nullptr },
         { NODE, "uninvite",       SEC_GAMEMASTER,     true,  &ChatHandler::HandleGuildUninviteCommand,       "", nullptr },
         { NODE, "rank",           SEC_GAMEMASTER,     true,  &ChatHandler::HandleGuildRankCommand,           "", nullptr },
+        { NODE, "rename",         SEC_ADMINISTRATOR,  true,  &ChatHandler::HandleGuildRenameCommand,         "", nullptr },
         { MSTR, nullptr,       0,                  false, nullptr,                                           "", nullptr }
     };
 
@@ -437,6 +438,7 @@ ChatCommand * ChatHandler::getCommandTable()
         { NODE, "sound",          SEC_MODERATOR,      true,  &ChatHandler::HandleLookupSoundCommand,         "", nullptr },
         { NODE, "taxinode",       SEC_ADMINISTRATOR,  true,  &ChatHandler::HandleLookupTaxiNodeCommand,      "", nullptr },
         { NODE, "tele",           SEC_MODERATOR,      true,  &ChatHandler::HandleLookupTeleCommand,          "", nullptr },
+        { NODE, "guild",          SEC_MODERATOR,      true,  &ChatHandler::HandleLookupGuildCommand,         "", nullptr },
         { MSTR, nullptr,       0,                  false, nullptr,                                           "", nullptr }
     };
 
@@ -1063,6 +1065,7 @@ ChatCommand * ChatHandler::getCommandTable()
         { NODE, "unlearn",        SEC_ADMINISTRATOR,  false, &ChatHandler::HandleUnLearnCommand,             "", nullptr },
         { NODE, "removeriding",   SEC_ADMINISTRATOR,  false, &ChatHandler::HandleRemoveRidingCommand,        "", nullptr },
         { NODE, "distance",       SEC_ADMINISTRATOR,  false, &ChatHandler::HandleGetDistanceCommand,         "", nullptr },
+        { NODE, "angle",          SEC_ADMINISTRATOR,  false, &ChatHandler::HandleGetAngleCommand,            "", nullptr },
         { NODE, "recall",         SEC_MODERATOR,      false, &ChatHandler::HandleRecallCommand,              "", nullptr },
         { NODE, "save",           SEC_PLAYER,         false, &ChatHandler::HandleSaveCommand,                "", nullptr },
         { MSTR, "wareffortget",   SEC_ADMINISTRATOR,  true,  &ChatHandler::HandleGetWarEffortResource,       "", nullptr },
@@ -2212,7 +2215,7 @@ bool ChatHandler::isValidChatMessage(const char* message)
                         bool foundName = false;
                         for (uint8 i = 0; i < MAX_DBC_LOCALE; ++i)
                         {
-                            if (*linkedSpell->SpellName[i] && strcmp(linkedSpell->SpellName[i], buffer) == 0)
+                            if (!linkedSpell->SpellName[i].empty() && strcmp(linkedSpell->SpellName[i].c_str(), buffer) == 0)
                             {
                                 foundName = true;
                                 break;

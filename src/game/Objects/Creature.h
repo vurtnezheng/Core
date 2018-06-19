@@ -65,6 +65,7 @@ enum CreatureFlagsExtra
     CREATURE_FLAG_EXTRA_ALWAYS_CRUSH                 = 0x00002000,       // creature always roll a crushing melee outcome when not miss/crit/dodge/parry/block
     CREATURE_FLAG_EXTRA_IMMUNE_AOE                   = 0x00004000,       // creature is immune to AoE
     CREATURE_FLAG_EXTRA_CHASE_GEN_NO_BACKING         = 0x00008000,       // creature does not move back when target is within bounding radius
+    CREATURE_FLAG_EXTRA_NO_ASSIST                    = 0x00010000,       // creature does not aggro when nearby creatures aggro
 };
 
 // GCC have alternative #pragma pack(N) syntax and old gcc version not support pack(push,N), also any gcc version not support it at some platform
@@ -680,6 +681,9 @@ class MANGOS_DLL_SPEC Creature : public Unit
         bool CanAssistTo(const Unit* u, const Unit* enemy, bool checkfaction = true) const;
         bool CanInitiateAttack();
 
+        uint32 GetDefaultMount() { return m_mountId; }
+        void SetDefaultMount(uint32 id) { m_mountId = id; }
+        
         void SetTauntImmunity(bool immune);
 
         MovementGeneratorType GetDefaultMovementType() const { return m_defaultMovementType; }
@@ -898,6 +902,7 @@ class MANGOS_DLL_SPEC Creature : public Unit
         MovementGeneratorType m_defaultMovementType;
         Cell m_currentCell;                                 // store current cell where creature listed
         uint32 m_equipmentId;
+        uint32 m_mountId;                                   // display Id to mount
 
         // below fields has potential for optimization
         bool m_AlreadyCallAssistance;

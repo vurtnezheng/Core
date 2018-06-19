@@ -3780,9 +3780,52 @@ bool ChatHandler::HandleGuildDeleteCommand(char* args)
     return true;
 }
 
+/**
+ * Renames a guild if a guild could be found with the specified name.
+ * Usage: .guild rename "name" "new name"
+ * It is not possible to rename a guild to a name that is already in use.
+ */
+bool ChatHandler::HandleGuildRenameCommand(char* args)
+{
+    if (!args || !*args)
+        return false;
+
+    char* currentName = ExtractQuotedArg(&args);
+    if (!currentName)
+        return false;
+
+    std::string current(currentName);
+
+    char* newName = ExtractQuotedArg(&args);
+    if (!newName)
+        return false;
+
+    std::string newn(newName);
+
+    Guild* target = sGuildMgr.GetGuildByName(currentName);
+    if (!target)
+    {
+        SendSysMessage(LANG_GUILD_NOT_FOUND);
+        SetSentErrorMessage(true);
+        return false;
+    }
+
+    if (Guild* existing = sGuildMgr.GetGuildByName(newn))
+    {
+        PSendSysMessage("A guild with the name '%s' already exists", newName);
+        SetSentErrorMessage(true);
+        return false;
+    }
+
+    target->Rename(newn);
+    PSendSysMessage("Guild '%s' successfully renamed to '%s'. Players must relog to see the changes", currentName, newName);
+    return true;
+}
+
+
 bool ChatHandler::HandleGetDistanceCommand(char* args)
 {
-    WorldObject* obj = NULL;
+    WorldObject* obj = nullptr;
 
     if (*args)
     {
@@ -3816,6 +3859,41 @@ bool ChatHandler::HandleGetDistanceCommand(char* args)
     dz = player->GetPositionZ() - obj->GetPositionZ();
 
     PSendSysMessage(LANG_DISTANCE, player->GetDistance(obj), player->GetDistance2d(obj), sqrt(dx * dx + dy * dy + dz * dz));
+
+    return true;
+}
+
+bool ChatHandler::HandleGetAngleCommand(char* args)
+{
+    WorldObject* obj = nullptr;
+
+    if (*args)
+    {
+        if (ObjectGuid guid = ExtractGuidFromLink(&args))
+            obj = (WorldObject*)m_session->GetPlayer()->GetObjectByTypeMask(guid, TYPEMASK_CREATURE_OR_GAMEOBJECT);
+
+        if (!obj)
+        {
+            SendSysMessage(LANG_PLAYER_NOT_FOUND);
+            SetSentErrorMessage(true);
+            return false;
+        }
+    }
+    else
+    {
+        obj = getSelectedUnit();
+
+        if (!obj)
+        {
+            SendSysMessage(LANG_SELECT_CHAR_OR_CREATURE);
+            SetSentErrorMessage(true);
+            return false;
+        }
+    }
+
+    Player* player = m_session->GetPlayer();
+    float angle = player->GetAngle(obj);
+    PSendSysMessage("You are at a %f angle to %s.", angle, obj->GetName());
 
     return true;
 }
@@ -4767,7 +4845,7 @@ bool ChatHandler::HandleListAurasCommand(char* /*args*/)
         bool talent = GetTalentSpellCost(itr->second->GetId()) > 0;
 
         SpellAuraHolder *holder = itr->second;
-        char const* name = holder->GetSpellProto()->SpellName[GetSessionDbcLocale()];
+        char const* name = holder->GetSpellProto()->SpellName[GetSessionDbcLocale()].c_str();
 
         for (int32 i = 0; i < MAX_EFFECT_INDEX; ++i)
         {
